@@ -3,7 +3,7 @@ package mobiledetect
 import "testing"
 
 func TestGetMobileDetectionRules(t *testing.T) {
-	rules := NewRules()
+	rules := DefaultRules()
 	count := len(rules.phoneDevices) + len(rules.tabletDevices) + len(rules.operatingSystems) + len(rules.browsers)
 	values := rules.mobileDetectionRules()
 	valuesLength := len(values)

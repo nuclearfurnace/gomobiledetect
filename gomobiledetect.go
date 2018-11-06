@@ -5,8 +5,6 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-
-	"github.com/gorilla/context"
 )
 
 const (
@@ -18,50 +16,9 @@ const (
 	MOBILE_GRADE_C = "C"
 )
 
-// Vars returns the route variables for the current request, if any.
-func Device(r *http.Request) string {
-	if rv := context.Get(r, "Device"); rv != nil {
-		return rv.(string)
-	}
-	return ""
-}
-
-type DeviceHandler interface {
-	Mobile(w http.ResponseWriter, r *http.Request, m *MobileDetect)
-	Tablet(w http.ResponseWriter, r *http.Request, m *MobileDetect)
-	Desktop(w http.ResponseWriter, r *http.Request, m *MobileDetect)
-}
-
-func Handler(h DeviceHandler, rules *rules) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		m := NewMobileDetect(r, rules)
-		if m.IsTablet() {
-			h.Tablet(w, r, m)
-		} else if m.IsMobile() {
-			h.Mobile(w, r, m)
-		} else {
-			h.Desktop(w, r, m)
-		}
-	})
-}
-
-func HandlerMux(s *http.ServeMux, rules *rules) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		m := NewMobileDetect(r, rules)
-		if m.IsTablet() {
-			context.Set(r, "Device", "Tablet")
-		} else if m.IsMobile() {
-			context.Set(r, "Device", "Mobile")
-		} else {
-			context.Set(r, "Device", "Desktop")
-		}
-		s.ServeHTTP(w, r)
-	})
-}
-
 // MobileDetect holds the structure to figure out a browser from a UserAgent string and methods necessary to make it happen
 type MobileDetect struct {
-	rules                *rules
+	rules                *Rules
 	userAgent            string
 	httpHeaders          map[string]string
 	mobileDetectionRules map[string]string
@@ -70,15 +27,15 @@ type MobileDetect struct {
 }
 
 // NewMobileDetect creates the MobileDetect object
-func NewMobileDetect(r *http.Request, rules *rules) *MobileDetect {
+func NewMobileDetect(r *http.Request, rules *Rules) *MobileDetect {
 	if nil == rules {
-		rules = NewRules()
+		rules = DefaultRules()
 	}
 	md := &MobileDetect{
 		rules:              rules,
 		userAgent:          r.UserAgent(),
 		httpHeaders:        getHttpHeaders(r),
-		compiledRegexRules: make(map[string]*regexp.Regexp, len(rules.mobileDetectionRules())),
+		compiledRegexRules: make(map[string]*regexp.Regexp),
 		properties:         newProperties(),
 	}
 	return md
@@ -229,17 +186,22 @@ func (md *MobileDetect) matchDetectionRulesAgainstUA() bool {
 // This method will be used to check custom regexes against the User-Agent string.
 // @todo: search in the HTTP headers too.
 func (md *MobileDetect) match(ruleValue string) bool {
-	//Escape the special character which is the delimiter
-	//rule = strings.Replace(rule, `\`, `\/`, -1)
 	ruleValue = `(?is)` + ruleValue
+
 	var re *regexp.Regexp
-	re = md.compiledRegexRules[ruleValue]
-	if nil == re {
-		md.compiledRegexRules[ruleValue] = regexp.MustCompile(ruleValue)
+
+	// Search for the cached regex in our ruleset.
+	re, ok := md.rules.regexes[ruleValue]
+	if !ok {
+		// We didn't have it cached, so cache it for ourselves.
+		re, ok = md.compiledRegexRules[ruleValue]
+		if !ok {
+			md.compiledRegexRules[ruleValue] = regexp.MustCompile(ruleValue)
+		}
+		re = md.compiledRegexRules[ruleValue]
 	}
-	re = md.compiledRegexRules[ruleValue]
-	ret := re.MatchString(md.userAgent)
-	return ret
+
+	return re.MatchString(md.userAgent)
 }
 
 // CheckHttpHeadersForMobile looks for mobile rules to confirm if the browser is a mobile browser
